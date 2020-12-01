@@ -1,10 +1,11 @@
 from keras.applications.resnet50 import ResNet50
 from keras.applications.resnet50 import preprocess_input, decode_predictions
 from keras.datasets import cifar10
-from keras.layers import GlobalAveragePooling2D, Dense
+from keras.layers import GlobalAveragePooling2D, Dense, Dropout
 from keras.models import Model
 from keras.regularizers import l2
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.optimizers import SGD, Adam
 import numpy as np
 
 
@@ -36,8 +37,11 @@ base_model = ResNet50(input_shape=(32, 32, 3), weights="imagenet", include_top=F
 # add global average pooling layers and dense layers
 x = base_model.output
 x = GlobalAveragePooling2D()(x)
-x = Dense(1024, activation="relu", kernel_regularizer=l2(0.001))(x)
-preds = Dense(10, activation="softmax", kernel_regularizer=l2(0.001))(x)
+x = Dense(1024, activation="relu")(x)
+x = Dropout(0.6)(x)
+x = Dense(512, activation="relu")(x)
+x = Dropout(0.6)(x)
+preds = Dense(10, activation="softmax", kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01))(x)
 
 # final model
 model = Model(inputs = base_model.input, outputs=preds)
@@ -47,7 +51,8 @@ for layer in base_model.layers:
     layer.trainable = False
 
 # compile the model
-model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=["accuracy"])
+sgd = SGD(learning_rate=0.03, momentum=0.9, name = "sgd")
+model.compile(optimizer=sgd, loss='categorical_crossentropy', metrics=["accuracy"])
 
 # print the summary of the model
 model.summary()
@@ -56,11 +61,12 @@ model.summary()
 
 
 # model callbacks
-early = EarlyStopping(monitor="val_accuracy", min_delta = 0.0001, patience=25, mode="auto")
+early = EarlyStopping(monitor="val_accuracy", min_delta = 0.0001, patience=20, mode="auto")
 checkpoint = ModelCheckpoint("tmp/checkpoint", monitor="val_accuracy", save_best_only=True, save_weights_only=False, mode="auto")
+rlrop = ReduceLROnPlateau(monitor="val_accuracy", factor=0.3, min_delta=0.0001, patience=15, mode="auto")
 
 # train the model
-model.fit(X_train, Y_train, epochs = 200, validation_data=(X_test, Y_test), callbacks=[early, checkpoint])
+model.fit(X_train, Y_train, batch_size = 128, epochs = 200, validation_data=(X_test, Y_test), callbacks=[early, checkpoint, rlrop])
 
 predsTrain = model.evaluate(X_train, Y_train)
 predsTest = model.evaluate(X_test, Y_test)
